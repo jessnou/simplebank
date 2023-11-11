@@ -10,8 +10,10 @@ import (
 	"net/http/httptest"
 	mockdb "simplebank/db/mock"
 	db "simplebank/db/sqlc"
+	"simplebank/token"
 	"simplebank/util"
 	"testing"
+	"time"
 )
 
 func TestCreateTransfer(t *testing.T) {
@@ -31,6 +33,7 @@ func TestCreateTransfer(t *testing.T) {
 	testCases := []struct {
 		name          string
 		body          gin.H
+		setupAuth     func(t *testing.T, request *http.Request, tokenMaker token.Maker)
 		buildStubs    func(store *mockdb.MockStore)
 		checkResponse func(recorder *httptest.ResponseRecorder)
 	}{
@@ -41,6 +44,9 @@ func TestCreateTransfer(t *testing.T) {
 				"to_account_id":   account2.ID,
 				"amount":          amount,
 				"currency":        util.USD,
+			},
+			setupAuth: func(t *testing.T, request *http.Request, tokenMaker token.Maker) {
+				addAuthorization(t, request, tokenMaker, authorizationTypeBearer, user1.Username, time.Minute)
 			},
 			buildStubs: func(store *mockdb.MockStore) {
 				store.EXPECT().
@@ -69,25 +75,25 @@ func TestCreateTransfer(t *testing.T) {
 
 	for i := range testCases {
 		tc := testCases[i]
-		t.Run(tc.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
+		//t.Run(tc.name, func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
 
-			store := mockdb.NewMockStore(ctrl)
-			tc.buildStubs(store)
+		store := mockdb.NewMockStore(ctrl)
+		tc.buildStubs(store)
 
-			server := newTestServer(t, store)
-			recorder := httptest.NewRecorder()
+		server := newTestServer(t, store)
+		recorder := httptest.NewRecorder()
 
-			data, err := json.Marshal(tc.body)
-			require.NoError(t, err)
+		data, err := json.Marshal(tc.body)
+		require.NoError(t, err)
 
-			url := "/transfers"
-			request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
-			require.NoError(t, err)
-
-			server.router.ServeHTTP(recorder, request)
-			tc.checkResponse(recorder)
-		})
+		url := "/transfers"
+		request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
+		require.NoError(t, err)
+		tc.setupAuth(t, request, server.tokenMaker)
+		server.router.ServeHTTP(recorder, request)
+		tc.checkResponse(recorder)
+		//})
 	}
 }
